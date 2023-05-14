@@ -1,7 +1,7 @@
 ---
 title: "Wood formation Populus"
 author: "Ireen van Dolderen"
-date: "22/02/2023"
+date: "14/05/2023"
 output: html_document
 ---
 
@@ -32,7 +32,6 @@ suppressPackageStartupMessages({
   library(glue)
 })
 ```
-
 
 ```{r create selection file, fig.height=6, fig.width=6, echo = FALSE}
 ## create selection file 
@@ -74,11 +73,13 @@ infoTable <- data.frame(samples,
                         stringsAsFactors = F)
 ```
 
-# Preprocessing 
+# Pre-processing
 
 ## Filtering the data and reading the data & Statistics with STUtility
-### leave the spot filtering data for after the quality control, considering the low capture count. 
-### very mild filter
+
+### Include all spots for now, filter out the spots outside the tissue after QC.
+
+### Moderate filter
 
 ```{r filtering data, results = 'hide'}
 suppressWarnings({
@@ -96,10 +97,12 @@ se <- LoadImages(se, time.resolve = F)
 
 ## Check nFeature_RNA spread for the three reference files, to choose best one.
 
-```{r reference genome comparison, fig.width = 25, fig.height = 10, echo = FALSE}
-p1 <- VlnPlot(se, features = "nFeature_RNA", ncol = 2, pt.size = 0.05, group.by = "section_id") #gene count plot
+```{r reference genome comparison, fig.width = 35, fig.height = 14, echo = FALSE}
+p1 <- VlnPlot(se, features = "nFeature_RNA", ncol = 2, pt.size = 0.02, group.by = "section_id") + 
+  stat_summary(fun.y = median, geom='point', size = 20, colour = "red", shape = 95 ) #gene count plot
 
-p2 <- VlnPlot(se, features = "nCount_RNA", ncol = 2, pt.size = 0.05, group.by = "section_id") #UMI count plot
+p2 <- VlnPlot(se, features = "nCount_RNA", ncol = 2, pt.size = 0.02, group.by = "section_id") + 
+  stat_summary(fun.y = median, geom='point', size = 20, colour = "red", shape = 95 ) #UMI count plot
 
 p1 <- p1 + theme(axis.text = element_text(size = 30),
                  axis.title = element_text(size=30),
@@ -127,7 +130,7 @@ dark.theme = F,
 pt.alpha = 0.8) 
 ```
 
-## Subset for T89 transcriptome as reference file
+## Subset for the T89 transcriptome as reference file
 
 ```{r subset reference genome choice, results = 'hide'}
 suppressWarnings({
@@ -152,7 +155,7 @@ pt.alpha = 0.8)
 
 # Quality control
 
-## Include all spots again for quality control
+## Include all spots for quality control
 
 ```{r quality control plots, results = FALSE}
 se <- InputFromTable(infoTable, disable.subset = FALSE)
@@ -182,7 +185,11 @@ p4 <- ggplot() +
   ggtitle("Total spots per gene")
 
 (p1 - p2)/(p3 - p4)
- 
+
+cat("mean UMI count: ", mean(se[[]]$nCount_RNA), "\n")
+cat("max UMI count: ", max(se[[]]$nCount_RNA), "\n")
+cat("mean gene count: ", mean(se[[]]$nFeature_RNA), "\n")
+cat("max gene count: ", max(se[[]]$nFeature_RNA))
 ```
 
 ## Subsetting based on quality control
@@ -197,12 +204,26 @@ cat("Number of spots before filtering:", ncol(se), "\n")
 cat("Number of spots after filtering:", ncol(se.subset), "\n")  
 cat("Spots removed: ", ncol(se) - ncol(se.subset), "\n")
 
-p1 <- ST.FeaturePlot(se, features = "nFeature_RNA", palette = 'Spectral', pt.size = 3) + ggtitle('RNA count per spot, unfilterd')
-p2 <- ST.FeaturePlot(se.subset, features = "nFeature_RNA", palette = 'Spectral', pt.size = 3) + ggtitle('RNA count per spot, filtered')
-p1 - p2 + patchwork::plot_layout(ncol = 2)
-
-                              
 ```
+
+```{r fig.height=5, fig.width=10}
+se.subset <- LoadImages(se.subset, time.resolve = F)
+
+FeatureOverlay(object = se.subset,
+features = c("nFeature_RNA", "nCount_RNA"),
+pt.size = 1.3,
+sampleids = 1,
+cols = c("#fffafa", "#c86a6a", "#b83e3e", "#870202", "#410101"),
+dark.theme = F,
+pt.alpha = 0.8) 
+
+#get n spots and n genes post filtering
+se.subset
+
+#get n UMIs post filtering
+sum(se.subset$nCount_RNA)
+```
+
 # Normalisation and dimensionality reduction
 
 ```{r run SCTransform, PCA, UMAP, fig.width = 3, fig.height = 3}
@@ -211,8 +232,9 @@ se.subset.norm <- RunPCA(se.subset.norm, npcs = 20, verbose = FALSE)
 se.subset.norm <- RunUMAP(se.subset.norm, reduction = "pca", dims = 1:20, verbose = FALSE) 
 ```
 
-## Matrix factorisation
-### Run non-negative matrix factorization, n factors chosen = 12 
+## Non-negative matrix factorisation
+
+### Run non-negative matrix factorization, n factors chosen = 12
 
 ```{r matrix factorisation, fig.width = 9, fig.height = 6, echo = FALSE, message = 'hide'}
 se.subset.norm.nmf <- RunNMF(se.subset.norm, nfactors = 12)
@@ -232,7 +254,24 @@ ST.DimPlot(se.subset.norm.nmf,
 #print(se.subset.norm.nmf[["NMF"]]) #print summary of the genes that contribute most to each of the vectors
 ```
 
-## RGB dimensionality reduction plot using first three dimensions using UMAP
+### Print names and distribution of top genes contributing to first 5 NMF factors
+
+```{r NMF genes}
+print(se.subset.norm.nmf[["NMF"]])
+
+sink(file = "NMF.txt")
+print(se.subset.norm.nmf[["NMF"]])
+sink(file = NULL)
+
+FactorGeneLoadingPlot(se.subset.norm.nmf, factor = 1)
+FactorGeneLoadingPlot(se.subset.norm.nmf, factor = 2)
+FactorGeneLoadingPlot(se.subset.norm.nmf, factor = 3)
+FactorGeneLoadingPlot(se.subset.norm.nmf, factor = 4)
+FactorGeneLoadingPlot(se.subset.norm.nmf, factor = 5)
+```
+
+## RGB dimensionality reduction plot using first three dimensions of UMAP
+
 ```{r RGB plot, fig.height=5, fig.width=5}
 se.subset.norm.rgb <- RunUMAP(object = se.subset.norm.nmf, dims = 1:12, verbose = FALSE, n.components = 3, reduction = "NMF", reduction.name = "umap.3d")
 
@@ -241,29 +280,60 @@ ST.DimPlot(object = se.subset.norm.rgb, dims = 1:3, reduction = "umap.3d", blend
 ```
 
 # Clustering
-## Clustering and subclustering based on various experiments with different dimensions and resolutions 
+
+## Clustering and subclustering based on UMAP
+
+```{r temp cluster, fig.width = 8, fig.height = 4}
+se.subset.norm <- FindNeighbors(se.subset.norm, graph.name = "cluster.graph", reduction = "pca", dims = 1:20, verbose = FALSE)
+se.subset.norm <- FindClusters(se.subset.norm, graph.name = "cluster.graph", resolution = 0.4, verbose = FALSE)
+
+coldef <- c("#e70c31","#0000FF", "#00CBD4","#2cdc5f", "#7500BF", "#e59800")
+
+p1 <- DimPlot(se.subset.norm, label = T, pt.size = 0.2, cols = coldef) + 
+  ggtitle("Unsupervised clustering") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+p2 <- ST.FeaturePlot(object = se.subset.norm, features = "seurat_clusters", pt.size = 0.85, ncol = 1, label.size = 10, combine = TRUE, cols = coldef) + guides(colour = guide_legend(override.aes = list(size=10))) #no subclustering
+
+p1 - p2
+
+ggsave(
+  "too_many_clusters.png"
+)
+```
 
 ```{r clustering, fig.width = 8, fig.height = 4, results = FALSE}
 se.subset.norm <- FindNeighbors(se.subset.norm, graph.name = "cluster.graph", reduction = "pca", dims = 1:20, verbose = FALSE)
 se.subset.norm <- FindClusters(se.subset.norm, graph.name = "cluster.graph", resolution = 0.35, verbose = FALSE)
+
+coldef1 <- c("#e70c31","#0000FF", "#00CBD4","#2cdc5f", "#7500BF", "#6c6c68")
+
+coldef2 <- c("#e70c31", "#0000FF", "#00CBD4", "#d8c60e", "#AA0084", "#ef61c5", "#006A21")
 
 se.subset.norm.temp <- FindSubCluster(se.subset.norm, 3, "cluster.graph", subcluster.name = "subclusters.temp", resolution = 0.3, algorithm = 1) #subset cluster 4
 se.subset.norm.temp <- SetIdent(se.subset.norm.temp, 
                                 value = se.subset.norm.temp@meta.data$subclusters.temp)
 se.subset.norm.temp <- FindSubCluster(se.subset.norm.temp, 4, "cluster.graph", subcluster.name = "subclusters", resolution = 0.3, algorithm = 1) #subset cluster 4
 
-p1 <- DimPlot(se.subset.norm, label = T, pt.size = 0.3) + 
+p1 <- DimPlot(se.subset.norm, label = T, pt.size = 0.3, cols = coldef1) + 
   ggtitle("Unsupervised clustering") +
   theme(plot.title = element_text(hjust = 0.5))
-p2 <- DimPlot(se.subset.norm.temp, group.by = "subclusters", label = T, pt.size = 0.3) +
+p2 <- DimPlot(se.subset.norm.temp, group.by = "subclusters", label = T, pt.size = 0.3, cols = coldef2) +
   ggtitle("Unsupervised subclustering") +
   theme(plot.title = element_text(hjust = 0.5))
 
 p1 - p2
 
+ggsave(
+  "cluster UMAPS.pdf",
+  plot = last_plot(),
+  device = pdf,
+  width = 8,
+  height = 4
+)
+
 se.subset.norm <- se.subset.norm.temp
 ```
-
 
 ## Plotting clusters spatially
 
@@ -280,6 +350,14 @@ p1 <- ST.FeaturePlot(object = se.subset.norm, features = "seurat_clusters", pt.s
 p2 <- ST.FeaturePlot(object = se.subset.norm, features = "subclusters", pt.size = 1.2, ncol = 1, cols = coldef2, combine = TRUE) + guides(colour = guide_legend(override.aes = list(size=10))) #cambium and phloem subclustered
 
 p1 - p2
+
+ggsave(
+  "cluster overlays.pdf",
+  plot = last_plot(),
+  device = pdf,
+  width = 8,
+  height = 4
+)
 ```
 
 ## Split view of clusters
@@ -289,10 +367,7 @@ ST.FeaturePlot(object = se.subset.norm, features = "subclusters", pt.size = 1.5,
 # ST.FeaturePlot(object = se.subset.norm, features = "seurat_clusters", pt.size = 1.5, split.labels = T, indices = 1, show.sb = FALSE, ncol = 3) #no subclusters included
 ```
 
-
-
-
-## Find marker genes for entire dataset and per subcluster
+## Differential expression analysis to find marker genes
 
 ```{r, fig.width = 10, fig.height = 7, echo = FALSE}
 #set identity to subclusters to include those in the marker finding
@@ -318,47 +393,91 @@ all_markers %>%
 DoHeatmap(se.subset.norm, 
           features = top_5$gene, 
           size = 4, 
-          lines.width = 1) + 
-  NoLegend()
+          lines.width = 1) 
 
 ```
-## Attempted cluster annotation using converted tremula marker gene list 
-### Based on marker genes for the vascular cambium 
-```{r cambium annotation, fig.widht = 8, fig.ehgiht = 8}
+
+## Attempted cluster annotation using converted *Populus* *tremula* marker gene list
+
+### Based on marker genes for the vascular cambium
+
+```{r cambium annotation, fig.widht = 8, fig.height = 8}
 cambium_markers <- c("Potrx053548g16773", "Potrx059502g20548", "Potrx054256g17134", "Potrx059429g20487", "Potrx045399g13456")
 
 FeaturePlot(se.subset.norm, feature = cambium_markers, ncol = 3)
 
+ggsave(
+  "cambium_markers_tremula.pdf",
+  plot = last_plot(),
+  device = pdf,
+  width = 12,
+  height = 8
+)
 ```
+
 ### Based on marker genes for xylem
+
 ```{r xylem annotation, fig.widht = 8, fig.height = 4}
 lignified_xylem_markers <- c("Potrx010492g09161", "Potrx039033g11771", "Potrx028483g28001")
 
 FeaturePlot(se.subset.norm, features = lignified_xylem_markers, ncol = 3)
+ggsave(
+  "xylem_markers_tremula.pdf",
+  plot = last_plot(),
+  device = pdf,
+  width = 12,
+  height = 4
+)
+
 ```
 
+## Attempted cluster annotation using T89 marker genes for the vascular cambium and secondary xylem identified in the literature
 
-## Attempted cluster annotation using T89 homologues of marker genes for the vascular cambium and secondary xylem identified in the literature 
-### Based on marker gene for vascular cambium 
+### Based on marker gene for vascular cambium
+
 ```{r cluster annotation based on cambium function, fig.width = 6, fig.height = 3.5}
 se.subset.norm <- LoadImages(se.subset.norm, time.resolve = F, verbose = F)
 cambium_marker <- 'Potrx006724g05182' #WOX4
-FeatureOverlay(se.subset.norm, features = cambium_marker, ncols = 2, pt.size = 1.5, cols = c("lightgray", "mistyrose", "red", "darkred", "black"))
+FeatureOverlay(se.subset.norm, features = cambium_marker, ncols = 2, pt.size = 0.8, cols = c("lightgray", "mistyrose", "red", "darkred", "black"))
 
 ```
+
+### Quantify WOX4 spread in clusters
+
+```{r wox4 distributino throughout clusters}
+VlnPlot(se.subset.norm, features = "Potrx006724g05182", slot = "counts", log = TRUE, pt.size = 0)
+```
+
 ### Based on marker genes for xylem
+
 ```{r cluster annotation based on xylem function, fig.width = 6, fig.height = 3.5}
 sec_xylem_markers <- c('Potrx063457g23774', 'Potrx052753g16389') #HB1 and HB2
-FeatureOverlay(se.subset.norm, features = sec_xylem_markers, ncols = 2, pt.size = 1.5, cols = c("lightgray", "mistyrose", "red", "darkred", "black")) 
+FeatureOverlay(se.subset.norm, features = sec_xylem_markers, ncols = 2, pt.size = 0.8, cols = c("lightgray", "mistyrose", "red", "darkred", "black")) 
 ```
 
-## cluster annotation based on function of differentially expressed genes 
-```{r cluster annotation, fig.width = 10, fig.height = 6, echo = FALSE}
+```{r T89 marker plot, fig.widht = 8, fig.height = 4}
+T89_markers <- c("Potrx006724g05182","Potrx063457g23774", "Potrx052753g16389") #WOX4, HB1, HB2
+FeaturePlot(se.subset.norm, features = T89_markers, ncol = 3)
+ggsave(
+  "T89markers_distribution.pdf",
+  plot = last_plot(),
+  device = pdf,
+  width = 12,
+  height = 4
+)
+```
+
+## cluster annotation based on function of differentially expressed genes
+
+```{r cluster annotation, fig.width = 10, fig.height = 6, echo = FALSE, results = 'hide'}
+#name custers based on annotation
 new.cluster.ids <- c("bark", "phloem", "not annotated (2)", "not annotated (4_1)", "vascular cambium", "secondary xylem", "primary xylem")
 names(new.cluster.ids) <- levels(se.subset.norm)
 se.subset.norm <- RenameIdents(se.subset.norm, new.cluster.ids)
+names(new.cluster.ids) <- levels(se.subset.norm)
 se.subset.norm <- Rename_Clusters(se.subset.norm, new.cluster.ids, meta_col_name = "subclusters")
 
+#plot annotated clusters as UMAP plot and on tissue 
 p1 <- DimPlot(se.subset.norm, group.by = "subclusters", label = T, pt.size = 0.5, cols = coldef2) +
   ggtitle("Unsupervised subclustering") + 
   NoLegend()
@@ -366,6 +485,11 @@ p1 <- DimPlot(se.subset.norm, group.by = "subclusters", label = T, pt.size = 0.5
 p2 <- FeatureOverlay(se.subset.norm, features = "subclusters", cols = coldef2, pt.size = 1)
 
 p1 - p2
+ggsave(
+  "annotaed_clusters.pdf",
+  plot = last_plot(),
+  device = pdf
+)
 ```
 
 ## Expression gradient throughout tissue of marker genes of vascular cambium area (4_0)
@@ -373,7 +497,7 @@ p1 - p2
 ```{r cambium marker genes distribution, fig.width = 9, fig.height = 6}
 #subset data to only include the cambium region
 se.subset.norm.camb <- SetIdent(se.subset.norm, value = se.subset.norm@meta.data$subclusters)
-se.subset.norm.camb <- subset(se.subset.norm.camb, idents = "4_0")
+se.subset.norm.camb <- subset(se.subset.norm.camb, idents = "vascular cambium")
 
 #load images into Seurat object
 se.subset.norm.camb <- LoadImages(se.subset.norm.camb, time.resolve = F, verbose = F)
@@ -384,7 +508,9 @@ FeatureOverlay(se.subset.norm.camb, features = top_5.cambium$gene, ncols = 3, pt
 DE.cambium <- top_5.cambium$gene
 
 ```
+
 ## Export marker gene tables and gene lists
+
 ```{r export marker genes, echo = FALSE}
 top_10 <- head(VariableFeatures(se.subset.norm), 10)
 all_markers %>%
@@ -407,16 +533,23 @@ sink()
  
 ```
 
-## Plot all marker genes in entire tissue. 
+## Plot all marker genes in entire tissue.
+
 ### One plot grid per subcluster
 
-```{r spatial expression of marker genes, fig.width=6, fig.height=4}
+```{r spatial expression of marker genes, fig.width=18, fig.height=4}
 # load images into Seurat object
 se.subset.norm <- LoadImages(se.subset.norm, time.resolve = F, verbose = F)
+
+# print spread of DE genes on tissue 
 for (cluster in unique(top_5$cluster)) {
   cluster.df <- top_5[which(top_5$cluster == cluster), ]
-  print(FeatureOverlay(se.subset.norm, features = cluster.df$gene, ncols = 3, pt.size = 0.8, cols = c("darkblue", "cyan", "yellow", "red", "darkred")))
+  print(FeatureOverlay(se.subset.norm, features = cluster.df$gene, ncols = 5, pt.size = 0.6, cols = c("darkblue", "cyan", "yellow", "red", "darkred")))
+  ggsave(
+  paste("myplot",cluster,".pdf",sep=""),
+  plot = last_plot(),
+  device = pdf
+)
 }
 
 ```
-
